@@ -1,10 +1,9 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { extname, join, normalize, resolve } from 'node:path';
 import { sendWithSmtp } from './smtp.mjs';
 
-const root = fileURLToPath(new URL('.', import.meta.url));
+const root = process.cwd();
 const publicDir = join(root, 'public');
 const MAX_BODY_BYTES = 16 * 1024;
 const MAX_REQUESTS_PER_WINDOW = 8;
@@ -171,7 +170,7 @@ export function createApp({ env = process.env, deliver = sendWithSmtp, now = () 
   };
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && resolve(process.argv[1]) === resolve('server.mjs')) {
   const port = Number(process.env.PORT || 3000);
   createServer(createApp()).listen(port, () => console.log(`Today Work Plan is running on http://localhost:${port}`));
 }
