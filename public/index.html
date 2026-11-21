@@ -12,26 +12,38 @@
       <header>
         <p class="eyebrow">PRIMEONE · DAILY UPDATE</p>
         <h1>Today Work Plan</h1>
-        <p class="lede">Share a clear daily update with your company. Updates are delivered by email and are not stored in this application.</p>
+        <p class="lede">Send a clear plan before work or an end-of-day task update. Emails use a professional format and are not stored in this application.</p>
       </header>
       <section class="card" aria-labelledby="update-heading">
-        <h2 id="update-heading">Your work update</h2>
+        <h2 id="update-heading">Choose your update</h2>
         <p class="required-note"><span aria-hidden="true">*</span> Required fields</p>
         <form id="update-form" novalidate>
-          <div class="grid two">
-            <label>Name *<input name="employeeName" autocomplete="name" maxlength="80" required></label>
-            <label>Employee ID *<input name="employeeId" maxlength="40" required></label>
-          </div>
-          <label>Work date *<input name="workDate" type="date" required></label>
-          <label>What did you work on today? *<textarea name="summary" maxlength="800" required></textarea></label>
-          <label>Key accomplishments<textarea name="accomplishments" maxlength="1600"></textarea></label>
-          <label>Blockers or support needed<textarea name="blockers" maxlength="1000"></textarea></label>
-          <label>Plan for tomorrow<textarea name="nextSteps" maxlength="1200"></textarea></label>
-          <label>Employee access code *<input name="accessCode" type="password" autocomplete="off" required aria-describedby="code-help"></label>
-          <p id="code-help" class="help">Your access code is verified securely and is never saved by this app.</p>
-          <button type="submit">Send daily update</button>
+          <fieldset class="update-type">
+            <legend>Update type *</legend>
+            <label class="choice"><input name="reportType" type="radio" value="morning" checked> <span><strong>Morning Plan</strong><small>Send the work you plan to complete today.</small></span></label>
+            <label class="choice"><input name="reportType" type="radio" value="end_of_day"> <span><strong>End-of-Day Update</strong><small>Send the tasks you completed today.</small></span></label>
+          </fieldset>
+          <label>Topic / title *<input name="topic" maxlength="120" required placeholder="e.g., Backend API Development"></label>
+          <label id="task-label">Today’s planned tasks *<textarea name="content" maxlength="6000" required placeholder="Enter one task on each line."></textarea></label>
+          <p class="help">The subject and professional email body are generated automatically. You can review and edit them before sending.</p>
+          <button type="submit">Generate email preview</button>
           <p id="status" role="status" aria-live="polite"></p>
         </form>
+      </section>
+      <section id="preview" class="card preview" aria-labelledby="preview-heading" hidden>
+        <div class="preview-heading">
+          <div>
+            <p class="eyebrow">REVIEW BEFORE SENDING</p>
+            <h2 id="preview-heading">Email preview</h2>
+          </div>
+          <button id="edit-draft" class="secondary" type="button">Edit draft</button>
+        </div>
+        <label>Email subject<input id="preview-subject" maxlength="220" required></label>
+        <label>Email body<textarea id="preview-body" maxlength="8000" required></textarea></label>
+        <div class="preview-actions">
+          <button id="send-email" type="button">Send email</button>
+          <p id="preview-status" role="status" aria-live="polite"></p>
+        </div>
       </section>
     </main>
     <script src="/app.js"></script>
