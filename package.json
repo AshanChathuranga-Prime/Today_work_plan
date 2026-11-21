@@ -1,0 +1,15 @@
+{
+  "name": "today-work-plan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Secure daily work update delivery for PrimeOne employees.",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
