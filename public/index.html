@@ -14,6 +14,15 @@
         <h1>Today Work Plan</h1>
         <p class="lede">Send a clear plan before work or an end-of-day task update. Emails use a professional format and are not stored in this application.</p>
       </header>
+      <section id="auth-card" class="card" aria-labelledby="auth-heading">
+        <h2 id="auth-heading">Unlock your private workspace</h2>
+        <p class="help" id="auth-help">Use Windows Hello fingerprint or PIN to continue.</p>
+        <label id="setup-label" hidden>One-time setup key<input id="setup-secret" type="password" autocomplete="off"></label>
+        <button id="auth-button" type="button">Continue with Windows Hello</button>
+        <p id="auth-status" role="status" aria-live="polite"></p>
+      </section>
+      <section id="workspace" hidden>
+      <div class="workspace-bar"><span>Private workspace unlocked</span><button id="logout" class="secondary" type="button">Lock app</button></div>
       <section class="card" aria-labelledby="update-heading">
         <h2 id="update-heading">Choose your update</h2>
         <p class="required-note"><span aria-hidden="true">*</span> Required fields</p>
@@ -45,7 +54,8 @@
           <p id="preview-status" role="status" aria-live="polite"></p>
         </div>
       </section>
+      </section>
     </main>
-    <script src="/app.js"></script>
+    <script type="module" src="/app.js"></script>
   </body>
 </html>

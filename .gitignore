@@ -5,3 +5,5 @@
 node_modules/
 coverage/
 .netlify/
+
+.local-auth-store.json

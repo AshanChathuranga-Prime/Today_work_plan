@@ -1,3 +1,17 @@
+import { startRegistration, startAuthentication } from 'https://cdn.jsdelivr.net/npm/@simplewebauthn/browser@14/+esm';
+const authCard = document.querySelector('#auth-card');
+const workspace = document.querySelector('#workspace');
+const authButton = document.querySelector('#auth-button');
+const authStatus = document.querySelector('#auth-status');
+const setupLabel = document.querySelector('#setup-label');
+const setupSecret = document.querySelector('#setup-secret');
+let enrolled = false;
+async function authRequest(path, body) { const response = await fetch(path, { method: body === undefined ? 'GET' : 'POST', headers: body === undefined ? {} : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Authentication failed.'); return data; }
+async function refreshAuth() { try { const state = await authRequest('/api/auth/status'); enrolled = state.enrolled; if (state.authenticated) unlock(); else { authCard.hidden = false; workspace.hidden = true; setupLabel.hidden = enrolled; authButton.textContent = enrolled ? 'Unlock with Windows Hello' : 'Register this device'; } } catch (error) { authStatus.textContent = error.message; } }
+function unlock() { authCard.hidden = true; workspace.hidden = false; }
+authButton.addEventListener('click', async () => { authButton.disabled = true; authStatus.textContent = 'Waiting for Windows Hello…'; try { if (!enrolled) { const options = await authRequest('/api/auth/register/options', { setupSecret: setupSecret.value }); const attestation = await startRegistration({ optionsJSON: options }); await authRequest('/api/auth/register/verify', attestation); } else { const options = await authRequest('/api/auth/login/options', {}); const assertion = await startAuthentication({ optionsJSON: options }); await authRequest('/api/auth/login/verify', assertion); } authStatus.textContent = 'Unlocked successfully.'; unlock(); } catch (error) { authStatus.textContent = error.message; } finally { authButton.disabled = false; } });
+document.querySelector('#logout').addEventListener('click', async () => { await authRequest('/api/auth/logout', {}); workspace.hidden = true; authCard.hidden = false; });
+refreshAuth();
 const form = document.querySelector('#update-form');
 const status = document.querySelector('#status');
 const button = form.querySelector('button');

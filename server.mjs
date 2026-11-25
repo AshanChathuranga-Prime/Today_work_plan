@@ -2,6 +2,11 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { sendWithSmtp } from './smtp.mjs';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import {
+  generateAuthenticationOptions, generateRegistrationOptions,
+  verifyAuthenticationResponse, verifyRegistrationResponse
+} from '@simplewebauthn/server';
 
 const root = process.cwd();
 const publicDir = join(root, 'public');
@@ -9,6 +14,22 @@ const MAX_BODY_BYTES = 16 * 1024;
 const MAX_REQUESTS_PER_WINDOW = 8;
 const RATE_WINDOW_MS = 15 * 60 * 1000;
 const DEFAULT_SENDER_NAME = 'Ashan Chathuranga';
+const AUTH_COOKIE = 'twp_session';
+
+async function authStore() {
+  if (process.env.NETLIFY) {
+    const { getStore } = await import('@netlify/blobs');
+    const blobs = getStore('today-work-plan-auth');
+    return { async get(key) { return await blobs.get(key, { type: 'json' }); }, async set(key, value) { if (value === null) return blobs.delete(key); return blobs.setJSON(key, value); } };
+  }
+  const { readFile, writeFile } = await import('node:fs/promises');
+  const path = join(root, '.local-auth-store.json');
+  return { async get(key) { try { const data = JSON.parse(await readFile(path, 'utf8')); return data[key] ?? null; } catch { return null; } }, async set(key, value) { let data = {}; try { data = JSON.parse(await readFile(path, 'utf8')); } catch {} if (value === null) delete data[key]; else data[key] = value; await writeFile(path, JSON.stringify(data), { mode: 0o600 }); } };
+}
+
+function cookieValue(header, name) { return String(header || '').split(';').map(v => v.trim()).find(v => v.startsWith(`${name}=`))?.slice(name.length + 1) || ''; }
+function sign(value, secret) { return createHmac('sha256', secret).update(value).digest('base64url'); }
+function validSession(request, secret) { const token = cookieValue(request.headers.cookie, AUTH_COOKIE); const [id, signature] = token.split('.'); if (!id || !signature) return false; const expected = sign(id, secret); const a = Buffer.from(signature); const b = Buffer.from(expected); return a.length === b.length && timingSafeEqual(a, b); }
 
 const contentTypes = {
   '.css': 'text/css; charset=utf-8',
@@ -27,7 +48,7 @@ function securityHeaders(response) {
   response.setHeader('X-Frame-Options', 'DENY');
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  response.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; style-src 'self'; script-src 'self'; connect-src 'self'");
+  response.setHeader('Content-Security-Policy', "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; style-src 'self'; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self'");
 }
 
 async function readJson(request) {
@@ -104,8 +125,13 @@ function parseRecipients(value) {
   return String(value || '').split(',').map((item) => item.trim()).filter(Boolean);
 }
 
-export function createApp({ env = process.env, deliver = sendWithSmtp, now = () => Date.now(), currentDate = () => new Date() } = {}) {
+export function createApp({ env = process.env, deliver = sendWithSmtp, now = () => Date.now(), currentDate = () => new Date(), store: suppliedStore } = {}) {
   const rateLimits = new Map();
+  const authEnabled = Boolean(env.AUTH_SETUP_SECRET && env.SESSION_SECRET);
+  let storePromise;
+  const store = () => storePromise ||= Promise.resolve(suppliedStore || authStore());
+  const rpId = (() => { try { return new URL(env.APP_ORIGIN).hostname; } catch { return 'localhost'; } })();
+  const expectedOrigin = env.APP_ORIGIN || `http://${rpId}`;
 
   function isRateLimited(request) {
     const ip = (request.headers['x-forwarded-for'] || request.socket.remoteAddress || 'unknown').split(',')[0].trim();
@@ -120,6 +146,54 @@ export function createApp({ env = process.env, deliver = sendWithSmtp, now = () 
   return async function app(request, response) {
     securityHeaders(response);
     const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
+
+    if (url.pathname.startsWith('/api/auth/')) {
+      if (!authEnabled) return sendJson(response, 503, { error: 'Authentication is not configured. Set AUTH_SETUP_SECRET and SESSION_SECRET.' });
+      try {
+        const db = await store();
+        const credentials = await db.get('credentials') || [];
+        if (request.method === 'GET' && url.pathname === '/api/auth/status') return sendJson(response, 200, { enrolled: credentials.length > 0, authenticated: validSession(request, env.SESSION_SECRET) });
+        if (request.method === 'POST' && url.pathname === '/api/auth/register/options') {
+          if (credentials.length) return sendJson(response, 403, { error: 'Registration is closed. This app already has an owner.' });
+          const body = await readJson(request);
+          if (body.setupSecret !== env.AUTH_SETUP_SECRET) return sendJson(response, 403, { error: 'Invalid setup key.' });
+          const options = await generateRegistrationOptions({ rpName: 'Today Work Plan', rpID: rpId, userName: 'owner', userDisplayName: 'Today Work Plan Owner', attestationType: 'none', authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' } });
+          await db.set('registration', { challenge: options.challenge, setupVerified: true });
+          return sendJson(response, 200, options);
+        }
+        if (request.method === 'POST' && url.pathname === '/api/auth/register/verify') {
+          const body = await readJson(request); const pending = await db.get('registration');
+          if (credentials.length || !pending?.setupVerified) return sendJson(response, 403, { error: 'Registration is not available.' });
+          const result = await verifyRegistrationResponse({ response: body, expectedChallenge: pending.challenge, expectedOrigin, expectedRPID: rpId, requireUserVerification: true });
+          if (!result.verified || !result.registrationInfo) return sendJson(response, 400, { error: 'Fingerprint/passkey verification failed.' });
+          const info = result.registrationInfo;
+          await db.set('credentials', [{ id: info.credential.id, publicKey: Buffer.from(info.credential.publicKey).toString('base64url'), counter: info.credential.counter, transports: body.response?.transports || [] }]);
+          await db.set('registration', null);
+          const sessionId = randomBytes(32).toString('base64url');
+          response.setHeader('Set-Cookie', `${AUTH_COOKIE}=${sessionId}.${sign(sessionId, env.SESSION_SECRET)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200`);
+          return sendJson(response, 200, { verified: true });
+        }
+        if (request.method === 'POST' && url.pathname === '/api/auth/login/options') {
+          if (!credentials.length) return sendJson(response, 409, { error: 'Complete the one-time owner setup first.' });
+          const options = await generateAuthenticationOptions({ rpID: rpId, allowCredentials: credentials.map(c => ({ id: c.id, transports: c.transports })), userVerification: 'required' });
+          await db.set('loginChallenge', options.challenge); return sendJson(response, 200, options);
+        }
+        if (request.method === 'POST' && url.pathname === '/api/auth/login/verify') {
+          const body = await readJson(request); const challenge = await db.get('loginChallenge');
+          const credential = credentials.find(c => c.id === body.id);
+          if (!credential || !challenge) return sendJson(response, 401, { error: 'Login challenge expired. Try again.' });
+          const result = await verifyAuthenticationResponse({ response: body, expectedChallenge: challenge, expectedOrigin, expectedRPID: rpId, credential: { id: credential.id, publicKey: Buffer.from(credential.publicKey, 'base64url'), counter: credential.counter, transports: credential.transports }, requireUserVerification: true });
+          if (!result.verified) return sendJson(response, 401, { error: 'Fingerprint verification failed.' });
+          credential.counter = result.authenticationInfo.newCounter; await db.set('credentials', credentials); await db.set('loginChallenge', null);
+          const sessionId = randomBytes(32).toString('base64url');
+          response.setHeader('Set-Cookie', `${AUTH_COOKIE}=${sessionId}.${sign(sessionId, env.SESSION_SECRET)}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200`);
+          return sendJson(response, 200, { verified: true });
+        }
+        if (request.method === 'POST' && url.pathname === '/api/auth/logout') { response.setHeader('Set-Cookie', `${AUTH_COOKIE}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`); return sendJson(response, 200, { loggedOut: true }); }
+        return sendJson(response, 404, { error: 'Not found.' });
+      } catch (error) { return sendJson(response, 400, { error: error instanceof Error ? error.message : 'Authentication failed.' }); }
+    }
+    if (authEnabled && url.pathname.startsWith('/api/') && !validSession(request, env.SESSION_SECRET)) return sendJson(response, 401, { error: 'Please unlock the app with Windows Hello first.' });
 
     if (request.method === 'GET' && url.pathname === '/api/health') {
       return sendJson(response, 200, { ready: Boolean(env.MAIL_FROM && env.MAIL_TO && env.SMTP_USER && env.SMTP_APP_PASSWORD) });

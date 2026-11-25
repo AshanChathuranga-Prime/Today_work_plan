@@ -30,3 +30,13 @@ Run `npm test`. Tests verify both email previews and the final send path using a
 - Use HTTPS and set `APP_ORIGIN` to the exact deployed site URL.
 - The form has no access-code field. Before a public launch, add allowlisted personal-email sign-in plus a WebAuthn passkey, which unlocks Face ID or fingerprint verification on compatible devices. This is important to prevent an unauthenticated public page from being used to send unwanted emails.
 - The intended production target is Netlify. Before publishing, the API must be deployed as a Netlify Function and its environment variables set in Netlify rather than committed to Git.
+
+## Windows Hello / passkey protection
+
+Set these Netlify environment variables before enabling the private workspace:
+
+- `AUTH_SETUP_SECRET`: a long, private one-time owner-enrollment key. Enter it only during the first device registration.
+- `SESSION_SECRET`: a random secret of at least 32 characters used to sign login sessions.
+- `APP_ORIGIN`: the exact HTTPS site origin, for example `https://your-site.netlify.app` (no trailing slash).
+
+The first visitor with the setup key can enroll the owner passkey. Registration closes automatically after the first credential is saved in Netlify Blobs. The browser uses Windows Hello (fingerprint where configured, otherwise Windows Hello PIN). Biometric data stays on the device. Keep the setup key private and rotate it after enrollment. Do not commit `.env` or secrets.
