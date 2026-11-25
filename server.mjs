@@ -17,7 +17,14 @@ const DEFAULT_SENDER_NAME = 'Ashan Chathuranga';
 const AUTH_COOKIE = 'twp_session';
 
 async function authStore() {
-  if (process.env.NETLIFY) {
+  const isNetlifyRuntime = Boolean(
+    process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.AWS_EXECUTION_ENV ||
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.CONTEXT
+  );
+  if (isNetlifyRuntime) {
     const { getStore } = await import('@netlify/blobs');
     const blobs = getStore('today-work-plan-auth');
     return { async get(key) { return await blobs.get(key, { type: 'json' }); }, async set(key, value) { if (value === null) return blobs.delete(key); return blobs.setJSON(key, value); } };
